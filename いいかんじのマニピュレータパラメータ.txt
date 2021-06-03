@@ -1,0 +1,119 @@
+いいかんじの提案手法のパラメータ
+
+## マニピュレータの論文[R1]のやつ
+def soft_normal(v, alpha):
+    """ソフト正規化関数"""
+    v_norm = np.linalg.norm(v)
+    softmax = v_norm + 1 / alpha * np.log(1 + np.exp(-2 * alpha * v_norm))
+    return v / softmax
+
+def A_stretch(v, alpha):
+    """空間を一方向に伸ばす計量"""
+    xi = soft_normal(v, alpha)
+    return xi @ xi.T
+
+def basic_metric_H(f, alpha, beta):
+    """基本の計量"""
+    f_norm = np.linalg.norm(f)
+    f_softmax = f_norm + 1 / alpha * np.log(1 + np.exp(-2 * alpha * f_norm))
+    s = f / f_softmax
+    return beta * s @ s.T + (1 - beta) * np.eye(2)
+
+def f_attract(z, dzdt, z0, i):
+    """アトラクタ加速度"""
+    
+    # パラメータ
+    max_speed = 0.5
+    if i == 0:
+        gain = 1.0
+        damp = gain / max_speed
+    if i == 1 or i == 11:
+        gain = 5
+        damp = gain / max_speed
+    alpha = 1  # 減速半径
+    #print("gain=",gain)
+    #print("f_at=", gain * soft_normal(z0 - z, alpha) - damp * dzdt)
+    return gain * soft_normal(z0 - z, alpha) - damp * dzdt
+
+def A_attract(z, dzdt, z0, f_attract, i):
+    """アトラクタ計量"""
+    
+    # パラメータ
+    sigma_W = 1
+    sigma_H = 1
+    alpha = 2  # 減速半径
+    dis = np.linalg.norm(z0 - z)
+    weight = np.exp(-dis / sigma_W)
+    beta_attract = 1 - np.exp(-1 / 2 * (dis / sigma_H) ** 2)
+    #beta_attract = 0
+    #print(beta_attract)
+    #print(weight * basic_metric_H(f_attract, alpha, beta_attract))
+    return weight * basic_metric_H(f_attract, alpha, beta_attract)
+
+def f_obs(z, dzdt, z0, i):
+    """障害物加速度"""
+
+    scale_rep = 1.5  # 感知半径を表す？
+    scale_damp = 1
+
+
+    ratio = 0.5
+
+    if i == 0 or i == 1 or i == 11:  # 先頭３つ
+        rep_gain = 1.5
+        damp_gain = rep_gain * ratio
+    elif 1 < i < 5 or 7 < i < 11:  # 左右側面３つずつ
+        rep_gain = 0.01
+        damp_gain = rep_gain * ratio
+    else:  # ケツ3つ
+        rep_gain = 0.00001
+        damp_gain = rep_gain * ratio
+
+    x = z - z0
+    #dodt = np.array([[-0.05, 0]], np.float32).T
+    #dzdt = dodt - dzdt
+
+    dis = np.linalg.norm(x)  # 距離関数
+    dis_grad = x / dis  # 距離関数の勾配
+
+    # 斥力項
+    alpha_rep = rep_gain * np.exp(-dis / scale_rep)  # 斥力の活性化関数
+    f_rep = alpha_rep * dis_grad  # 斥力項
+
+    # ダンピング項
+    P_obs = max(0, -(dzdt).T @ dis_grad) * dis_grad @ dis_grad.T @ dzdt  # 零空間射影演算子
+    alpha_damp = damp_gain / (dis / scale_damp + 1e-7)  # ダンピングの活性化関数
+    f_damp = alpha_damp * P_obs  # ダンピング項
+
+    #print(f_rep + f_damp)
+
+    return f_rep + f_damp
+
+def A_obs(z, dzdt, z0, f_obs, i):
+    """障害物計量"""
+    r = 15  # この半径外に障害物が来ると発散
+    x = z - z0
+    dis = np.linalg.norm(x)
+    weight_obs = (dis / r) ** 2 - 2 * dis / r + 1  #3次スプライン?
+
+    #weight_obs = 1 / (1 + np.exp(1.1 * dis - 5))  # シグモイド
+
+    #multi = 1
+    #coeff = 1
+    #offset = 0
+    #weight_obs = multi * np.exp(-(dis - offset) * coeff)  # 指数関数
+
+    #r_react = 2  # 感知半径
+    #b = 1
+    #a = b / r_react
+    #weight_obs = max(-a * dis + b, 0)
+    #print(weight_obs * basic_metric_H(f_obs, 1, 1))
+
+    #weight_obs = 0
+    #return weight_obs * basic_metric_H(f_obs, 1, 1)  # これかも？
+    return weight_obs * np.eye(2, dtype = np.float32)  # 誤植？
+    #print(f_obs @ f_obs.T)
+    #return weight_obs * f_obs @ f_obs.T
+
+
+f_obs_moveなし
